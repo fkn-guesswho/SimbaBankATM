@@ -1,0 +1,25 @@
+
+# Visual Studio temporary files
+.vs/
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.cache
+
+# Build outputs
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+
+# Database files (don't commit local runtime databases)
+*.mdf
+*.ldf
+*.db
+*.sqlite
