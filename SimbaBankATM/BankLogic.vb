@@ -4,6 +4,8 @@ Option Explicit On
 Imports System
 Imports System.Collections.Generic
 Imports System.Text
+Imports System.Security.Cryptography
+
 
 Public Structure OpResult
     Public ReadOnly Success As Boolean
@@ -38,6 +40,18 @@ Public Class Transaction
         BalanceAfter = balanceAfterTx
     End Sub
 
+    Public Sub New(
+    txKind As TransactionType,
+    txAmount As Decimal,
+    balanceAfterTx As Decimal,
+    originalTimestamp As DateTime
+)
+        Timestamp = originalTimestamp
+        Kind = txKind
+        Amount = txAmount
+        BalanceAfter = balanceAfterTx
+    End Sub
+
     Public Overrides Function ToString() As String
         Return $"{Timestamp:dd MMM yyyy HH:mm}  {Kind.ToString(),-12} {Amount,10:N2}   Balance: {BalanceAfter,10:N2}"
     End Function
@@ -48,11 +62,62 @@ Public Class Account
     Public Const DailyWithdrawLimit As Decimal = 1000D
     Public Const MaxPinAttempts As Integer = 3
 
-    Private _pin As String
+    Private _pinSalt As Byte()
+    Private _pinHash As Byte()
+    Private Sub SetPin(pin As String)
+        _pinSalt = RandomNumberGenerator.GetBytes(16)
+
+        _pinHash = Rfc2898DeriveBytes.Pbkdf2(
+        pin,
+        _pinSalt,
+        100000,
+        HashAlgorithmName.SHA256,
+        32
+    )
+    End Sub
+
+    Private Function CheckPin(pin As String) As Boolean
+        If _pinSalt Is Nothing OrElse _pinHash Is Nothing Then Return False
+
+        Dim attemptedHash As Byte() = Rfc2898DeriveBytes.Pbkdf2(
+        pin,
+        _pinSalt,
+        100000,
+        HashAlgorithmName.SHA256,
+        32
+    )
+
+        Return CryptographicOperations.FixedTimeEquals(_pinHash, attemptedHash)
+    End Function
+
+    Public ReadOnly Property PinSalt As Byte()
+        Get
+            Return _pinSalt
+        End Get
+    End Property
+
+    Public ReadOnly Property PinHash As Byte()
+        Get
+            Return _pinHash
+        End Get
+    End Property
     Private _balance As Decimal
     Private _withdrawnToday As Decimal
     Private _withdrawDate As Date = Date.Today
     Private ReadOnly _history As New List(Of Transaction)
+
+    Public ReadOnly Property WithdrawnToday As Decimal
+        Get
+            ResetDailyIfNeeded()
+            Return _withdrawnToday
+        End Get
+    End Property
+
+    Public ReadOnly Property WithdrawDate As Date
+        Get
+            Return _withdrawDate
+        End Get
+    End Property
 
     Public ReadOnly Property CardNumber As String
     Public ReadOnly Property HolderName As String
@@ -71,6 +136,10 @@ Public Class Account
         End Get
     End Property
 
+    Public Sub RestoreTransaction(transaction As Transaction)
+        _history.Add(transaction)
+    End Sub
+
     Public ReadOnly Property RemainingDailyLimit As Decimal
         Get
             ResetDailyIfNeeded()
@@ -81,8 +150,34 @@ Public Class Account
     Public Sub New(cardNo As String, holder As String, pin As String, openingBalance As Decimal)
         CardNumber = cardNo
         HolderName = holder
-        _pin = pin
+        SetPin(pin)
         _balance = openingBalance
+    End Sub
+
+    Public Sub New(
+    cardNo As String,
+    holder As String,
+    savedSalt As Byte(),
+    savedHash As Byte(),
+    savedBalance As Decimal
+)
+        CardNumber = cardNo
+        HolderName = holder
+        RestorePinHash(savedSalt, savedHash)
+        _balance = savedBalance
+    End Sub
+
+    Public Sub RestorePinHash(savedSalt As Byte(), savedHash As Byte())
+        If savedSalt Is Nothing OrElse savedHash Is Nothing Then
+            Throw New ArgumentException("PIN security data is missing.")
+        End If
+
+        If savedSalt.Length <> 16 OrElse savedHash.Length <> 32 Then
+            Throw New ArgumentException("Invalid PIN security data.")
+        End If
+
+        _pinSalt = CType(savedSalt.Clone(), Byte())
+        _pinHash = CType(savedHash.Clone(), Byte())
     End Sub
 
     Public Shared Function IsValidPin(pin As String) As Boolean
@@ -95,18 +190,38 @@ Public Class Account
 
     Public Function VerifyPin(pin As String) As Boolean
         If IsLocked Then Return False
-        If pin = _pin Then
+
+        If CheckPin(pin) Then
             FailedAttempts = 0
             Return True
         End If
+
         FailedAttempts += 1
-        If FailedAttempts >= MaxPinAttempts Then IsLocked = True
+
+        If FailedAttempts >= MaxPinAttempts Then
+            IsLocked = True
+        End If
+
         Return False
     End Function
 
     Public Sub Unlock()
         IsLocked = False
         FailedAttempts = 0
+    End Sub
+
+    Public Sub RestoreState(
+    savedBalance As Decimal,
+    savedWithdrawnToday As Decimal,
+    savedWithdrawDate As Date,
+    savedFailedAttempts As Integer,
+    savedIsLocked As Boolean
+)
+        _balance = savedBalance
+        _withdrawnToday = savedWithdrawnToday
+        _withdrawDate = savedWithdrawDate
+        FailedAttempts = savedFailedAttempts
+        IsLocked = savedIsLocked
     End Sub
 
     Private Sub ResetDailyIfNeeded()
@@ -154,10 +269,17 @@ Public Class Account
     End Sub
 
     Public Function ChangePin(oldPin As String, newPin As String) As OpResult
-        If oldPin <> _pin Then Return New OpResult(False, "Current PIN is incorrect.")
-        If Not IsValidPin(newPin) Then Return New OpResult(False, "New PIN must be exactly 4 digits.")
-        _pin = newPin
+        If Not CheckPin(oldPin) Then
+            Return New OpResult(False, "Current PIN is incorrect.")
+        End If
+
+        If Not IsValidPin(newPin) Then
+            Return New OpResult(False, "New PIN must be exactly 4 digits.")
+        End If
+
+        SetPin(newPin)
         Record(TransactionType.PinChange, 0D)
+
         Return New OpResult(True, "PIN changed successfully.")
     End Function
 End Class
@@ -167,10 +289,7 @@ Public Class Bank
     Private ReadOnly _accounts As New Dictionary(Of String, Account)
 
     Public Sub New()
-        ' Sample data so you can test straight away
-        AddAccount(New Account("1001", "Alice Otieno", "1234", 5000D))
-        AddAccount(New Account("1002", "Brian Kamau", "4321", 2500D))
-        AddAccount(New Account("1003", "Carol Wanjiru", "1111", 100D))
+        ' Accounts will be loaded from the database.
     End Sub
 
     Public ReadOnly Property AllAccounts As IEnumerable(Of Account)
@@ -236,6 +355,20 @@ Public Class CashDispenser
 
     Public Sub AddNotes(denomination As Integer, count As Integer)
         _stock(denomination) += count
+    End Sub
+
+    Public Sub RestoreStock(denomination As Integer, count As Integer)
+
+        If Not _stock.ContainsKey(denomination) Then
+            Throw New ArgumentException("Invalid denomination.")
+        End If
+
+        If count < 0 Then
+            Throw New ArgumentOutOfRangeException(NameOf(count))
+        End If
+
+        _stock(denomination) = count
+
     End Sub
 
     ' Works out which notes to give. Returns Nothing if it is not possible.

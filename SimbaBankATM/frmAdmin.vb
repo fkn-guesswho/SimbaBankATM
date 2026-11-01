@@ -60,6 +60,7 @@
         End If
 
         atm.AddNotes(denomination, count)
+        DatabaseHelper.SaveCash(AppData.atm)
 
         MessageBox.Show(count & " notes of KSh " & denomination &
                     " added successfully." & vbCrLf &
@@ -103,8 +104,8 @@
         MessageBoxIcon.Question)
 
         If answer = DialogResult.Yes Then
-            acc.IsLocked = False
-            acc.FailedAttempts = 0
+            acc.Unlock()
+            DatabaseHelper.SaveAccount(acc)
 
             MessageBox.Show("Card unlocked successfully for " &
                         acc.HolderName & ".",
@@ -174,6 +175,9 @@
         )
 
         If AppData.bank.AddAccount(newAccount) Then
+
+            DatabaseHelper.SaveAccount(newAccount)
+
             MessageBox.Show(
                 "Account created successfully!" & vbCrLf & vbCrLf &
                 "Customer: " & newAccount.HolderName & vbCrLf &

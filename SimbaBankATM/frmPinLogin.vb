@@ -33,13 +33,17 @@ Public Class frmPinLogin
             Return
         End If
 
-        If acc.VerifyPin(txtPin.Text.Trim()) Then
+        Dim pinCorrect As Boolean = acc.VerifyPin(txtPin.Text.Trim())
+
+        DatabaseHelper.SaveAccount(acc)
+
+        If pinCorrect Then
             AppData.CurrentAccount = acc
             frmCustomerMenu.Show()
             Me.Hide()
         Else
             MessageBox.Show("Incorrect PIN. Attempts remaining: " &
-                            (Account.MaxPinAttempts - acc.FailedAttempts).ToString())
+                        (Account.MaxPinAttempts - acc.FailedAttempts).ToString())
 
             txtPin.Clear()
             txtPin.Focus()

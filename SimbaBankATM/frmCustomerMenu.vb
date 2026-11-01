@@ -31,12 +31,16 @@
 
         Dim result As OpResult = AppData.CurrentAccount.Deposit(amount)
 
+        If result.Success Then
+            DatabaseHelper.SaveAccount(AppData.CurrentAccount)
+        End If
+
         MessageBox.Show(result.Message, "Deposit Result")
 
         If result.Success Then
             MessageBox.Show("New balance: KSh " &
-                        AppData.CurrentAccount.Balance.ToString("N2"),
-                        "Updated Balance")
+                    AppData.CurrentAccount.Balance.ToString("N2"),
+                    "Updated Balance")
         End If
     End Sub
 
@@ -92,7 +96,6 @@
 
         Dim withdrawalAmount As Integer = CInt(amount)
 
-        ' Check whether the ATM can dispense the exact amount first.
         Dim plan As Dictionary(Of Integer, Integer) =
         AppData.atm.PlanDispense(withdrawalAmount)
 
@@ -103,7 +106,6 @@
             Return
         End If
 
-        ' Deduct from the account only after checking ATM cash availability.
         Dim result As OpResult =
         AppData.CurrentAccount.Withdraw(amount)
 
@@ -112,8 +114,10 @@
             Return
         End If
 
-        ' Update the ATM's physical note stock after a successful withdrawal.
         AppData.atm.Dispense(plan)
+
+        DatabaseHelper.SaveAccount(AppData.CurrentAccount)
+        DatabaseHelper.SaveCash(AppData.atm)
 
         MessageBox.Show(
         result.Message & vbCrLf &
@@ -138,7 +142,7 @@
         End If
 
         Dim recipientInput As String =
-            InputBox("Enter the recipient's card number:", "Transfer Money")
+        InputBox("Enter the recipient's card number:", "Transfer Money")
 
         If recipientInput.Trim() = "" Then Return
 
@@ -155,7 +159,7 @@
         End If
 
         Dim amountInput As String =
-            InputBox("Enter the amount to transfer (KSh):", "Transfer Money")
+        InputBox("Enter the amount to transfer (KSh):", "Transfer Money")
 
         If amountInput.Trim() = "" Then Return
 
@@ -175,12 +179,15 @@
 
         recipient.TransferIn(amount)
 
+        ' Save both accounts.
+        DatabaseHelper.SaveAccounts(AppData.CurrentAccount, recipient)
+
         MessageBox.Show("Transfer successful!" &
-                        vbCrLf & "Amount: KSh " & amount.ToString("N2") &
-                        vbCrLf & "Recipient: " & recipient.HolderName &
-                        vbCrLf & "Your new balance: KSh " &
-                        AppData.CurrentAccount.Balance.ToString("N2"),
-                        "Transfer Complete")
+                    vbCrLf & "Amount: KSh " & amount.ToString("N2") &
+                    vbCrLf & "Recipient: " & recipient.HolderName &
+                    vbCrLf & "Your new balance: KSh " &
+                    AppData.CurrentAccount.Balance.ToString("N2"),
+                    "Transfer Complete")
     End Sub
 
 
@@ -222,12 +229,12 @@
         End If
 
         Dim oldPin As String =
-            InputBox("Enter your current PIN:", "Change PIN")
+        InputBox("Enter your current PIN:", "Change PIN")
 
         If oldPin = "" Then Return
 
         Dim newPin As String =
-            InputBox("Enter your new 4-digit PIN:", "Change PIN")
+        InputBox("Enter your new 4-digit PIN:", "Change PIN")
 
         If newPin = "" Then Return
 
@@ -237,7 +244,7 @@
         End If
 
         Dim confirmPin As String =
-            InputBox("Confirm your new PIN:", "Change PIN")
+        InputBox("Confirm your new PIN:", "Change PIN")
 
         If confirmPin = "" Then Return
 
@@ -247,7 +254,11 @@
         End If
 
         Dim result As OpResult =
-            AppData.CurrentAccount.ChangePin(oldPin, newPin)
+        AppData.CurrentAccount.ChangePin(oldPin, newPin)
+
+        If result.Success Then
+            DatabaseHelper.SaveAccount(AppData.CurrentAccount)
+        End If
 
         MessageBox.Show(result.Message, "Change PIN")
     End Sub
